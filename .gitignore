@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.DS_Store
+scripts/migrated_content.json
+supabase/migrations/20261022061000_englishmeme_import.sql
