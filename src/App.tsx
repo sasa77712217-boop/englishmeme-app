@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
 import { hasSupabase, supabase } from './lib/supabase'
@@ -65,11 +65,11 @@ function App() {
     <SiteHeader profile={auth.profile} dark={dark} onToggleTheme={() => setDark(value => !value)} />
     <main className="page-content"><Routes>
       <Route path="/" element={<HomePage />} />
-      <Route path="/levels" element={<LevelsPage />} />
-      <Route path="/study/:levelId" element={<StudyPage session={auth.session} onToast={setToast} />} />
-      <Route path="/tutorials" element={<TutorialsPage session={auth.session} />} />
-      <Route path="/store" element={<StorePage session={auth.session} onToast={setToast} />} />
-      <Route path="/profile" element={<ProfilePage profile={auth.profile} session={auth.session} onToast={setToast} />} />
+      <Route path="/levels" element={<PrivatePage session={auth.session}><LevelsPage session={auth.session} /></PrivatePage>} />
+      <Route path="/study/:levelId" element={<PrivatePage session={auth.session}><StudyPage session={auth.session} onToast={setToast} /></PrivatePage>} />
+      <Route path="/tutorials" element={<PrivatePage session={auth.session}><TutorialsPage session={auth.session} /></PrivatePage>} />
+      <Route path="/store" element={<PrivatePage session={auth.session}><StorePage session={auth.session} onToast={setToast} /></PrivatePage>} />
+      <Route path="/profile" element={<PrivatePage session={auth.session}><ProfilePage profile={auth.profile} session={auth.session} onToast={setToast} /></PrivatePage>} />
       <Route path="/admin" element={<AdminPage profile={auth.profile} session={auth.session} onToast={setToast} />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={<HomePage />} />
@@ -77,6 +77,10 @@ function App() {
     <MobileNav profile={auth.profile} />
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
+}
+
+function PrivatePage({ session, children }: { session: Session | null; children: ReactNode }) {
+  return session ? <>{children}</> : <LoginRequired />
 }
 
 function SiteHeader({ profile, dark, onToggleTheme }: { profile: Profile | null; dark: boolean; onToggleTheme: () => void }) {
@@ -107,14 +111,37 @@ function HomePage() {
   </>
 }
 
-function LevelsPage() {
+function LevelsPage({ session }: { session: Session | null }) {
   const [levels, setLevels] = useState(demoLevels)
-  useEffect(() => { if (!supabase) return; void Promise.all([supabase.from('levels').select('id,name,difficulty_label,description,sort_order,max_cards,is_active').eq('is_active', true).order('sort_order'), supabase.from('learning_cards').select('id,level_id').eq('is_published', true)]).then(([levelResult, cardResult]) => { if (levelResult.data?.length) { const counts = (cardResult.data || []).reduce<Record<string, number>>((map, card) => { map[card.level_id as string] = (map[card.level_id as string] || 0) + 1; return map }, {}); setLevels((levelResult.data as Level[]).map(level => ({ ...level, card_count: counts[level.id] || 0 }))) } }) }, [])
-  return <section className="section-shell"><div className="section-heading"><div><p className="eyebrow">TU RUTA DE APRENDIZAJE</p><h1>La ciudad de las <em>frases.</em></h1><p>Avanza estación por estación. Cada nivel abre una forma nueva de entender el inglés.</p></div><div className="route-badge">{levels.length} niveles<br /><b>en tu ruta</b></div></div><div className="level-road">{levels.map((level, index) => <article className={`level-card level-${index + 1}`} key={level.id}><div className="level-number">0{index + 1}</div><div className="level-copy"><span className="tag">{level.difficulty_label}</span><h2>{level.name}</h2><p>{level.description}</p><div className="level-meta"><span>{level.card_count ?? (level.name === 'Principiante' ? 10 : 0)} tarjetas</span><span>70% para pasar</span></div></div><div className="level-action"><Link className="button pale" to={`/study/${level.id}`}>{index === 0 ? 'Entrar al nivel' : 'Ver estación'} <b>→</b></Link></div></article>)}</div></section>
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!supabase || !session) return
+    void Promise.all([
+      supabase.from('levels').select('id,name,difficulty_label,description,sort_order,max_cards,is_active').eq('is_active', true).order('sort_order'),
+      supabase.from('learning_cards').select('id,level_id').eq('is_published', true),
+      supabase.from('level_progress').select('level_id,completed').eq('user_id', session.user.id),
+    ]).then(([levelResult, cardResult, progressResult]) => {
+      if (levelResult.data?.length) {
+        const counts = (cardResult.data || []).reduce<Record<string, number>>((map, card) => {
+          map[card.level_id as string] = (map[card.level_id as string] || 0) + 1
+          return map
+        }, {})
+        setLevels((levelResult.data as Level[]).map(level => ({ ...level, card_count: counts[level.id] || 0 })))
+      }
+      setCompletedIds(new Set((progressResult.data || []).filter(item => item.completed).map(item => item.level_id as string)))
+    })
+  }, [session])
+
+  return <section className="section-shell"><div className="section-heading"><div><p className="eyebrow">TU RUTA DE APRENDIZAJE</p><h1>La ciudad de las <em>frases.</em></h1><p>Avanza estación por estación. Cada nivel abre una forma nueva de entender el inglés.</p></div><div className="route-badge">{levels.length} niveles<br /><b>en tu ruta</b></div></div><div className="level-road">{levels.map((level, index) => {
+    const unlocked = index === 0 || completedIds.has(levels[index - 1].id)
+    return <article className={`level-card level-${index + 1}${unlocked ? '' : ' is-locked'}`} key={level.id}><div className="level-number">0{index + 1}</div><div className="level-copy"><span className="tag">{level.difficulty_label}</span><h2>{level.name}</h2><p>{level.description}</p><div className="level-meta"><span>{level.card_count ?? 0} tarjetas</span><span>{unlocked ? '70% para pasar' : '🔒 Completa el anterior'}</span></div></div><div className="level-action">{unlocked ? <Link className="button pale" to={`/study/${level.id}`}>{index === 0 ? 'Entrar al nivel' : 'Continuar nivel'} <b>→</b></Link> : <span className="button pale locked-button">🔒 Bloqueado</span>}</div></article>
+  })}</div></section>
 }
 
 function StudyPage({ session, onToast }: { session: Session | null; onToast: (message: string) => void }) {
   const { levelId } = useParams()
+  const navigate = useNavigate()
   const [cards, setCards] = useState(() => demoCards.filter(card => !levelId || card.level_id === levelId))
   const [cardIndex, setCardIndex] = useState(0)
   const [selected, setSelected] = useState('')
@@ -129,11 +156,39 @@ function StudyPage({ session, onToast }: { session: Session | null; onToast: (me
   }, [levelId])
   useEffect(() => {
     if (!supabase || !session || !levelId || !cards.length || quizId || levelId.startsWith('level-')) return
-    void supabase.from('quiz_sessions').insert({ user_id: session.user.id, level_id: levelId, card_ids: cards.map(item => item.id) }).select('id').single().then(({ data }) => { if (data?.id) setQuizId(data.id as string) })
-  }, [cards, levelId, quizId, session])
+    void supabase.rpc('start_quiz_session', { _level_id: levelId }).then(({ data, error }) => {
+      if (error) {
+        onToast(error.message.includes('level_locked') ? 'Completa el nivel anterior para continuar.' : 'No se pudo iniciar el nivel.')
+        navigate('/levels')
+        return
+      }
+      if (data?.[0]?.session_id) setQuizId(data[0].session_id as string)
+    })
+  }, [cards, levelId, quizId, session, onToast, navigate])
   function listen() { if (!('speechSynthesis' in window)) { onToast('La voz no está disponible en este navegador.'); return }; window.speechSynthesis.cancel(); const voice = new SpeechSynthesisUtterance(card.phrase); voice.lang = 'en-US'; window.speechSynthesis.speak(voice) }
-  function answer(event: FormEvent) { event.preventDefault(); if (!selected) return; const localCorrect = selected.toLowerCase() === card.correct_answer.toLowerCase(); if (supabase && session && quizId) void supabase.rpc('submit_quiz_answer', { _session_id: quizId, _card_id: card.id, _answer: selected }).then(({ data }) => { const result = data?.[0]; setFeedback(result?.is_correct ? '¡Correcto! Muy bien, avanza a la siguiente tarjeta.' : 'No es correcto. Sigue practicando y vuelve a intentarlo.') }); else setFeedback(localCorrect ? '¡Correcto! Muy bien, avanza a la siguiente tarjeta.' : 'No es correcto. Sigue practicando y vuelve a intentarlo.'); window.setTimeout(() => { setCardIndex(value => value + 1); setSelected(''); setFeedback('') }, 1100) }
-  return <section className="quiz-shell"><div className="quiz-head"><div><p className="eyebrow">PRUEBA · PRINCIPIANTE</p><h1>Una tarjeta a la vez.</h1><p>Elige la mejor opción por el contexto. La respuesta correcta no aparece antes de responder.</p></div><div className="score-pill">Aciertos<br /><b>{cardIndex}</b></div></div>{feedback && <div className={`feedback ${feedback.startsWith('¡') ? 'good' : 'bad'}`}>{feedback}</div>}<article className="quiz-card"><div className="quiz-progress"><span style={{ width: `${((cardIndex % 10) + 1) * 10}%` }} /></div><span className="tag">{card.topic}</span><h2>“{card.phrase}”</h2><button className="listen" onClick={listen}>♬ Escuchar pronunciación</button>{card.image_path && <img className="meme-image" src={asset(card.image_path)} alt="Meme de la tarjeta" onError={event => { event.currentTarget.src = '/meme-placeholder.svg' }} />}<p className="question-copy"><b>Elige la mejor opción:</b> demuestra lo que entendiste por el contexto.</p><form className="quiz-options" onSubmit={answer}>{card.options.map(option => <label key={option} className={selected === option ? 'selected' : ''}><input type="radio" name="answer" value={option} checked={selected === option} onChange={event => setSelected(event.target.value)} /><span>{option}</span></label>)}<button className="button coral full" type="submit">Comprobar y continuar →</button></form></article>{!session && <p className="login-hint">Estás viendo una prueba de demostración. <Link to="/login">Inicia sesión con Google</Link> para guardar tu progreso y puntos.</p>}<Link className="text-link" to="/levels">← Volver a niveles</Link></section>
+  async function answer(event: FormEvent) {
+    event.preventDefault()
+    if (!selected) return
+    const localCorrect = selected.toLowerCase() === card.correct_answer.toLowerCase()
+    let isCorrect = localCorrect
+    if (supabase && session && quizId) {
+      const { data, error } = await supabase.rpc('submit_quiz_answer', { _session_id: quizId, _card_id: card.id, _answer: selected })
+      if (!error) isCorrect = Boolean(data?.[0]?.is_correct)
+    }
+    const lastCard = cardIndex + 1 >= cards.length
+    setFeedback(isCorrect ? '¡Correcto! Muy bien.' : 'No es correcto. Sigue practicando y vuelve a intentarlo.')
+    if (lastCard && supabase && session && quizId) {
+      const { data, error } = await supabase.rpc('finish_quiz_session', { _session_id: quizId })
+      window.setTimeout(() => {
+        if (error) onToast('No se pudo guardar el resultado del nivel.')
+        else onToast(data?.[0]?.completed ? 'Nivel aprobado. El siguiente nivel está desbloqueado.' : 'Necesitas 70% para desbloquear el siguiente nivel.')
+        navigate('/levels')
+      }, 1300)
+      return
+    }
+    window.setTimeout(() => { setCardIndex(value => value + 1); setSelected(''); setFeedback('') }, 1100)
+  }
+  return <section className="quiz-shell"><div className="quiz-head"><div><p className="eyebrow">PRUEBA · PRINCIPIANTE</p><h1>Una tarjeta a la vez.</h1><p>Elige la mejor opción por el contexto. La respuesta correcta no aparece antes de responder.</p></div><div className="score-pill">Aciertos<br /><b>{cardIndex}</b></div></div>{feedback && <div className={`feedback ${feedback.startsWith('¡') ? 'good' : 'bad'}`}>{feedback}</div>}<article className="quiz-card"><div className="quiz-progress"><span style={{ width: `${((cardIndex % 10) + 1) * 10}%` }} /></div><span className="tag">{card.topic}</span><h2>“{card.phrase}”</h2><button className="listen" onClick={listen}>♬ Escuchar pronunciación</button>{card.image_path && <img className="meme-image" src={asset(card.image_path)} alt="Meme de la tarjeta" onError={event => { event.currentTarget.src = asset('/meme-placeholder.svg') }} />}<p className="question-copy"><b>Elige la mejor opción:</b> demuestra lo que entendiste por el contexto.</p><form className="quiz-options" onSubmit={answer}>{card.options.map(option => <label key={option} className={selected === option ? 'selected' : ''}><input type="radio" name="answer" value={option} checked={selected === option} onChange={event => setSelected(event.target.value)} /><span>{option}</span></label>)}<button className="button coral full" type="submit">Comprobar y continuar →</button></form></article>{!session && <p className="login-hint">Estás viendo una prueba de demostración. <Link to="/login">Inicia sesión con Google</Link> para guardar tu progreso y puntos.</p>}<Link className="text-link" to="/levels">← Volver a niveles</Link></section>
 }
 
 function TutorialsPage({ session }: { session: Session | null }) {
