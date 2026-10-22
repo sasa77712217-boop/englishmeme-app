@@ -37,6 +37,7 @@ const demoItems: StoreItem[] = [
 function useAuth() {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [ready, setReady] = useState(!supabase)
 
   useEffect(() => {
     if (!supabase) return
@@ -49,13 +50,15 @@ function useAuth() {
         if (error) console.error('No se pudo intercambiar el código de Google:', error.message)
         if (active && data.session) setSession(data.session)
         window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`)
+        if (active) setReady(true)
         return
       }
       const { data } = await client.auth.getSession()
       if (active) setSession(data.session)
+      if (active) setReady(true)
     }
     void restoreSession()
-    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
+    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => { setSession(nextSession); setReady(true) })
     return () => { active = false; listener.subscription.unsubscribe() }
   }, [])
 
@@ -64,26 +67,33 @@ function useAuth() {
     void supabase.from('profiles').select('id,name,email,role,avatar_url').eq('id', session.user.id).maybeSingle().then(({ data }) => setProfile(data as Profile | null))
   }, [session])
 
-  return { session, profile }
+  return { session, profile, ready }
 }
 
 function App() {
   const auth = useAuth()
+  const navigate = useNavigate()
   const [dark, setDark] = useState(() => localStorage.getItem('memeenglish-theme') !== 'light')
   const [toast, setToast] = useState('')
 
   useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; localStorage.setItem('memeenglish-theme', dark ? 'dark' : 'light') }, [dark])
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2800); return () => window.clearTimeout(timer) }, [toast])
+  useEffect(() => {
+    if (auth.ready && auth.session && sessionStorage.getItem('memeenglish-oauth-return') === '1') {
+      sessionStorage.removeItem('memeenglish-oauth-return')
+      navigate('/profile', { replace: true })
+    }
+  }, [auth.ready, auth.session, navigate])
 
   return <div className="app-shell">
     <SiteHeader profile={auth.profile} session={auth.session} dark={dark} onToggleTheme={() => setDark(value => !value)} />
     <main className="page-content"><Routes>
       <Route path="/" element={<HomePage />} />
-      <Route path="/levels" element={<PrivatePage session={auth.session}><LevelsPage session={auth.session} /></PrivatePage>} />
-      <Route path="/study/:levelId" element={<PrivatePage session={auth.session}><StudyPage session={auth.session} onToast={setToast} /></PrivatePage>} />
-      <Route path="/tutorials" element={<PrivatePage session={auth.session}><TutorialsPage session={auth.session} /></PrivatePage>} />
-      <Route path="/store" element={<PrivatePage session={auth.session}><StorePage session={auth.session} onToast={setToast} /></PrivatePage>} />
-      <Route path="/profile" element={<PrivatePage session={auth.session}><ProfilePage profile={auth.profile} session={auth.session} onToast={setToast} /></PrivatePage>} />
+      <Route path="/levels" element={<PrivatePage ready={auth.ready} session={auth.session}><LevelsPage session={auth.session} /></PrivatePage>} />
+      <Route path="/study/:levelId" element={<PrivatePage ready={auth.ready} session={auth.session}><StudyPage session={auth.session} onToast={setToast} /></PrivatePage>} />
+      <Route path="/tutorials" element={<PrivatePage ready={auth.ready} session={auth.session}><TutorialsPage session={auth.session} /></PrivatePage>} />
+      <Route path="/store" element={<PrivatePage ready={auth.ready} session={auth.session}><StorePage session={auth.session} onToast={setToast} /></PrivatePage>} />
+      <Route path="/profile" element={<PrivatePage ready={auth.ready} session={auth.session}><ProfilePage profile={auth.profile} session={auth.session} onToast={setToast} /></PrivatePage>} />
       <Route path="/admin" element={<AdminPage profile={auth.profile} session={auth.session} onToast={setToast} />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={<HomePage />} />
@@ -93,7 +103,8 @@ function App() {
   </div>
 }
 
-function PrivatePage({ session, children }: { session: Session | null; children: ReactNode }) {
+function PrivatePage({ ready, session, children }: { ready: boolean; session: Session | null; children: ReactNode }) {
+  if (!ready) return <section className="empty-state"><p className="eyebrow">MEMEENGLISH</p><h1>Restaurando tu sesión…</h1><p>Espera un momento mientras confirmamos tu acceso.</p></section>
   return session ? <>{children}</> : <LoginRequired />
 }
 
@@ -335,7 +346,7 @@ function AdminPage({ profile, session, onToast }: { profile: Profile | null; ses
 function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  async function login() { if (!supabase) { setMessage('El preview está en modo visual. Configura las variables VITE_SUPABASE para iniciar sesión.'); return }; setLoading(true); const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: new URL(`${import.meta.env.BASE_URL}profile`, window.location.origin).toString() } }); if (error) setMessage(error.message); setLoading(false) }
+  async function login() { if (!supabase) { setMessage('El preview está en modo visual. Configura las variables VITE_SUPABASE para iniciar sesión.'); return }; setLoading(true); sessionStorage.setItem('memeenglish-oauth-return', '1'); const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: new URL(import.meta.env.BASE_URL, window.location.origin).toString() } }); if (error) { sessionStorage.removeItem('memeenglish-oauth-return'); setMessage(error.message) }; setLoading(false) }
   return <section className="auth-shell"><div className="auth-message"><p className="eyebrow">MEMEENGLISH</p><h1>Tu próxima frase favorita empieza aquí.</h1><p>Aprende expresiones reales, escucha la pronunciación y convierte tu constancia en puntos para tu perfil.</p><div className="auth-quote">“The best way to learn is to keep showing up.”</div></div><div className="auth-card"><span className="google-mark">G</span><h2>Entra con Google</h2><p>No necesitas memorizar otra contraseña. Tu cuenta queda protegida por Supabase Auth.</p><button className="button coral full" onClick={() => void login()} disabled={loading}>{loading ? 'Conectando…' : 'Continuar con Google →'}</button>{message && <div className="feedback bad">{message}</div>}<p className="auth-footnote">Al entrar aceptas usar EnglishMeme para fines de aprendizaje.</p></div></section>
 }
 
