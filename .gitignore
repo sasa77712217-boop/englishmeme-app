@@ -4,5 +4,6 @@ dist
 .env.local
 .env.*.local
 .DS_Store
+__pycache__/
 scripts/migrated_content.json
 supabase/migrations/20261022061000_englishmeme_import.sql
