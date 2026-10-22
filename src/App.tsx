@@ -40,9 +40,23 @@ function useAuth() {
 
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
-    return () => listener.subscription.unsubscribe()
+    const client = supabase
+    let active = true
+    const restoreSession = async () => {
+      const code = new URLSearchParams(window.location.search).get('code')
+      if (code) {
+        const { data, error } = await client.auth.exchangeCodeForSession(code)
+        if (error) console.error('No se pudo intercambiar el código de Google:', error.message)
+        if (active && data.session) setSession(data.session)
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`)
+        return
+      }
+      const { data } = await client.auth.getSession()
+      if (active) setSession(data.session)
+    }
+    void restoreSession()
+    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
+    return () => { active = false; listener.subscription.unsubscribe() }
   }, [])
 
   useEffect(() => {
@@ -62,7 +76,7 @@ function App() {
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2800); return () => window.clearTimeout(timer) }, [toast])
 
   return <div className="app-shell">
-    <SiteHeader profile={auth.profile} dark={dark} onToggleTheme={() => setDark(value => !value)} />
+    <SiteHeader profile={auth.profile} session={auth.session} dark={dark} onToggleTheme={() => setDark(value => !value)} />
     <main className="page-content"><Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/levels" element={<PrivatePage session={auth.session}><LevelsPage session={auth.session} /></PrivatePage>} />
@@ -74,7 +88,7 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={<HomePage />} />
     </Routes></main>
-    <MobileNav profile={auth.profile} />
+    <MobileNav profile={auth.profile} session={auth.session} />
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
 }
@@ -83,8 +97,10 @@ function PrivatePage({ session, children }: { session: Session | null; children:
   return session ? <>{children}</> : <LoginRequired />
 }
 
-function SiteHeader({ profile, dark, onToggleTheme }: { profile: Profile | null; dark: boolean; onToggleTheme: () => void }) {
+function SiteHeader({ profile, session, dark, onToggleTheme }: { profile: Profile | null; session: Session | null; dark: boolean; onToggleTheme: () => void }) {
   const navigate = useNavigate()
+  const signedIn = Boolean(session)
+  const accountName = profile?.name || session?.user.user_metadata?.full_name || session?.user.email || 'Mi cuenta'
   async function logout() { if (supabase) await supabase.auth.signOut(); navigate('/') }
   return <header className="topbar">
     <Link className="brand" to="/"><span className="brand-mark">✦</span><span>Meme<span>English</span></span></Link>
@@ -94,13 +110,13 @@ function SiteHeader({ profile, dark, onToggleTheme }: { profile: Profile | null;
     </nav>
     <div className="top-actions">
       <button className="icon-button" onClick={onToggleTheme} aria-label="Cambiar tema">{dark ? '☼' : '☾'}</button>
-      {profile ? <details className="account-menu"><summary><span className="avatar tiny">{initial(profile.name || profile.email)}</span><span className="account-name">{profile.name || 'Mi cuenta'}</span></summary><div className="menu-panel"><Link to="/profile">Mi progreso</Link>{(profile.role === 'owner' || profile.role === 'admin') && <Link to="/admin">Administración</Link>}<button onClick={() => void logout()}>Cerrar sesión</button></div></details> : <Link className="button small dark" to="/login">Entrar</Link>}
+      {signedIn ? <details className="account-menu"><summary><span className="avatar tiny">{initial(accountName)}</span><span className="account-name">{accountName}</span></summary><div className="menu-panel"><Link to="/profile">Mi progreso</Link>{(profile?.role === 'owner' || profile?.role === 'admin') && <Link to="/admin">Administración</Link>}<button onClick={() => void logout()}>Cerrar sesión</button></div></details> : <Link className="button small dark" to="/login">Entrar</Link>}
     </div>
   </header>
 }
 
-function MobileNav({ profile }: { profile: Profile | null }) {
-  return <nav className="mobile-nav"><NavLink to="/levels"><span>⌂</span>Aprender</NavLink><NavLink to="/tutorials"><span>▣</span>Videos</NavLink><NavLink to="/store"><span>✦</span>Tienda</NavLink><NavLink to={profile ? '/profile' : '/login'}><span>◉</span>Perfil</NavLink></nav>
+function MobileNav({ profile, session }: { profile: Profile | null; session: Session | null }) {
+  return <nav className="mobile-nav"><NavLink to="/levels"><span>⌂</span>Aprender</NavLink><NavLink to="/tutorials"><span>▣</span>Videos</NavLink><NavLink to="/store"><span>✦</span>Tienda</NavLink><NavLink to={session ? '/profile' : '/login'}><span>◉</span>Perfil</NavLink></nav>
 }
 
 function HomePage() {
