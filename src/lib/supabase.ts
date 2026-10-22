@@ -5,8 +5,8 @@ const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || 'https:
 const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) || 'sb_publishable_22Qd57wNwPDpoVubbTksBw_QRwrpUIX'
 
 export const supabase = url && key ? createClient(url, key, {
-  // App.tsx procesa explícitamente el parámetro `code` al volver de Google.
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+  // Supabase procesa automáticamente el código OAuth al volver desde Google.
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 }) : null
 
 export const hasSupabase = Boolean(supabase)

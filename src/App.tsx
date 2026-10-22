@@ -43,21 +43,7 @@ function useAuth() {
     if (!supabase) return
     const client = supabase
     let active = true
-    const restoreSession = async () => {
-      const code = new URLSearchParams(window.location.search).get('code')
-      if (code) {
-        const { data, error } = await client.auth.exchangeCodeForSession(code)
-        if (error) console.error('No se pudo intercambiar el código de Google:', error.message)
-        if (active && data.session) setSession(data.session)
-        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`)
-        if (active) setReady(true)
-        return
-      }
-      const { data } = await client.auth.getSession()
-      if (active) setSession(data.session)
-      if (active) setReady(true)
-    }
-    void restoreSession()
+    void client.auth.getSession().then(({ data }) => { if (active) { setSession(data.session); setReady(true) } })
     const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => { setSession(nextSession); setReady(true) })
     return () => { active = false; listener.subscription.unsubscribe() }
   }, [])
