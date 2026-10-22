@@ -55,6 +55,11 @@ export type StoreItem = {
   is_published: boolean
 }
 
+export type OwnedItem = StoreItem & {
+  item_id: string
+  quantity: number
+}
+
 export type UserProgress = {
   points: number
   current_streak: number

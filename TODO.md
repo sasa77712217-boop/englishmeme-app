@@ -35,7 +35,7 @@
 - [x] El usuario dispone de una sección de videos tutoriales con título, descripción, miniatura y categoría.
 - [x] Los videos publicados se pueden reproducir en un modal mediante URL embebible.
 - [x] Admin ya puede crear, editar, publicar y retirar tutoriales desde Supabase.
-- [ ] Añadir filtros activos por categoría/nivel y validación estricta de hosts de video antes de publicar.
+- [x] Añadir filtros activos por categoría; queda pendiente validación estricta de hosts de video antes de publicar.
 
 ## 6. Puntos seguros — avanzado
 
@@ -51,7 +51,7 @@
 - [x] Una compra valida saldo, descuenta puntos y crea inventario en una operación atómica.
 - [x] La misma compra no se repite accidentalmente por doble clic o reintento.
 - [x] Admin ya puede crear, editar, publicar, retirar y cambiar precios de artículos.
-- [ ] Conectar la acción de equipar banner y refrescar el perfil desde `profile_customizations`/`user_inventory`.
+- [x] Conectar la acción de equipar banner y refrescar el perfil desde `profile_customizations`/`user_inventory`.
 
 ## 8. Panel Admin y auditoría — parcial
 
